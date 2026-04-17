@@ -2639,6 +2639,22 @@ func hasAuthPoolPolicyMetadata(meta map[string]any) bool {
 	return false
 }
 
+func (m *Manager) routeAwareSelectionRequired(auth *Auth, routeModel string) bool {
+	if m == nil || auth == nil {
+		return false
+	}
+	if strings.TrimSpace(routeModel) == "" {
+		return false
+	}
+	selectionModel := m.selectionModelForAuth(auth, routeModel)
+	requestedKey := canonicalModelKey(routeModel)
+	selectionKey := canonicalModelKey(selectionModel)
+	if requestedKey == "" || selectionKey == "" {
+		return false
+	}
+	return requestedKey != selectionKey
+}
+
 func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 

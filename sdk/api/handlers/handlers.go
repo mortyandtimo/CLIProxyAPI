@@ -228,7 +228,9 @@ func requestExecutionMetadata(ctx context.Context) map[string]any {
 		}
 	}
 
-	meta[idempotencyKeyMetadataKey] = key
+	if key != "" {
+		meta[idempotencyKeyMetadataKey] = key
+	}
 	if pinnedAuthID := pinnedAuthIDFromContext(ctx); pinnedAuthID != "" {
 		meta[coreexecutor.PinnedAuthMetadataKey] = pinnedAuthID
 	}

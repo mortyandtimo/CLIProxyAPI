@@ -15,7 +15,7 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-type usageReporter struct {
+type UsageReporter struct {
 	provider         string
 	model            string
 	authID           string
@@ -27,9 +27,9 @@ type usageReporter struct {
 	once             sync.Once
 }
 
-func newUsageReporter(ctx context.Context, provider, model string, auth *cliproxyauth.Auth) *usageReporter {
+func NewUsageReporter(ctx context.Context, provider, model string, auth *cliproxyauth.Auth) *UsageReporter {
 	apiKey := apiKeyFromContext(ctx)
-	reporter := &usageReporter{
+	reporter := &UsageReporter{
 		provider:         provider,
 		model:            model,
 		requestedAt:      time.Now(),
@@ -42,6 +42,10 @@ func newUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 		reporter.authIndex = auth.EnsureIndex()
 	}
 	return reporter
+}
+
+func newUsageReporter(ctx context.Context, provider, model string, auth *cliproxyauth.Auth) *UsageReporter {
+	return NewUsageReporter(ctx, provider, model, auth)
 }
 
 func (r *UsageReporter) Publish(ctx context.Context, detail usage.Detail) {
@@ -109,6 +113,36 @@ func (r *UsageReporter) EnsurePublished(ctx context.Context) {
 			Detail:           usage.Detail{},
 		})
 	})
+}
+
+func (r *UsageReporter) buildRecord(detail usage.Detail, failed bool) usage.Record {
+	if r == nil {
+		return usage.Record{Detail: detail, Failed: failed}
+	}
+	return usage.Record{
+		Provider:         r.provider,
+		Model:            r.model,
+		Source:           r.source,
+		APIKey:           r.apiKey,
+		AuthID:           r.authID,
+		AuthIndex:        r.authIndex,
+		SelectedAuthPool: r.selectedAuthPool,
+		RequestedAt:      r.requestedAt,
+		Latency:          r.latency(),
+		Failed:           failed,
+		Detail:           detail,
+	}
+}
+
+func (r *UsageReporter) latency() time.Duration {
+	if r == nil || r.requestedAt.IsZero() {
+		return 0
+	}
+	latency := time.Since(r.requestedAt)
+	if latency < 0 {
+		return 0
+	}
+	return latency
 }
 
 func resolveSelectedAuthPool(ctx context.Context, auth *cliproxyauth.Auth) string {

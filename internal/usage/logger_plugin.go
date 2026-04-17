@@ -90,6 +90,7 @@ type modelStats struct {
 // RequestDetail stores the timestamp, latency, and token usage for a single request.
 type RequestDetail struct {
 	Timestamp        time.Time  `json:"timestamp"`
+	LatencyMs        int64      `json:"latency_ms"`
 	Source           string     `json:"source"`
 	AuthIndex        string     `json:"auth_index"`
 	SelectedAuthPool string     `json:"selected_auth_pool,omitempty"`
@@ -199,6 +200,7 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 	}
 	s.updateAPIStats(stats, modelName, RequestDetail{
 		Timestamp:        timestamp,
+		LatencyMs:        normaliseLatency(record.Latency),
 		Source:           record.Source,
 		AuthIndex:        record.AuthIndex,
 		SelectedAuthPool: record.SelectedAuthPool,

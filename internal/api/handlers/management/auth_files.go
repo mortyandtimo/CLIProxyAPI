@@ -1375,6 +1375,7 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		Name       string            `json:"name"`
 		Prefix     *string           `json:"prefix"`
 		ProxyURL   *string           `json:"proxy_url"`
+		Headers    map[string]string `json:"headers"`
 		Priority   *int              `json:"priority"`
 		Weight     *int              `json:"weight"`
 		Note       *string           `json:"note"`
@@ -1440,6 +1441,47 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		}
 		changed = true
 	}
+	if req.Headers != nil {
+		if targetAuth.Metadata == nil {
+			targetAuth.Metadata = make(map[string]any)
+		}
+		if targetAuth.Attributes == nil {
+			targetAuth.Attributes = make(map[string]string)
+		}
+
+		if len(req.Headers) > 0 {
+			existing := coreauth.ExtractCustomHeadersFromMetadata(targetAuth.Metadata)
+			merged := make(map[string]string, len(existing)+len(req.Headers))
+			for key, value := range existing {
+				merged[key] = value
+			}
+			for key, value := range req.Headers {
+				name := strings.TrimSpace(key)
+				if name == "" {
+					continue
+				}
+				trimmed := strings.TrimSpace(value)
+				if trimmed == "" {
+					delete(merged, name)
+					delete(targetAuth.Attributes, "header:"+name)
+					continue
+				}
+				merged[name] = trimmed
+				targetAuth.Attributes["header:"+name] = trimmed
+			}
+			if len(merged) == 0 {
+				delete(targetAuth.Metadata, "headers")
+			} else {
+				metaHeaders := make(map[string]any, len(merged))
+				for key, value := range merged {
+					metaHeaders[key] = value
+				}
+				targetAuth.Metadata["headers"] = metaHeaders
+			}
+		}
+		changed = true
+	}
+
 	if req.Pools != nil || req.PoolGroups != nil {
 		if targetAuth.Metadata == nil {
 			targetAuth.Metadata = make(map[string]any)
@@ -1535,6 +1577,7 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		return
 	}
 
+	coreauth.ApplyCustomHeadersFromMetadata(targetAuth)
 	targetAuth.UpdatedAt = time.Now()
 
 	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {

@@ -18,6 +18,7 @@ type Record struct {
 	SelectedAuthPool string
 	Source           string
 	RequestedAt      time.Time
+	Latency          time.Duration
 	Failed           bool
 	Detail           Detail
 }
