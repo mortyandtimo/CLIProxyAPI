@@ -997,7 +997,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth)
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1069,7 +1069,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth)
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1141,7 +1141,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth)
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1221,15 +1221,31 @@ func pinnedAuthIDFromMetadata(meta map[string]any) string {
 	}
 }
 
-func publishSelectedAuthMetadata(meta map[string]any, authID string) {
-	if len(meta) == 0 {
+func publishSelectedAuthMetadata(meta map[string]any, auth *Auth) {
+	if len(meta) == 0 || auth == nil {
 		return
 	}
-	authID = strings.TrimSpace(authID)
+	authID := strings.TrimSpace(auth.ID)
 	if authID == "" {
 		return
 	}
 	meta[cliproxyexecutor.SelectedAuthMetadataKey] = authID
+	delete(meta, cliproxyexecutor.SelectedAuthPoolMetadataKey)
+	delete(meta, cliproxyexecutor.SelectedAuthPoolGroupMetadataKey)
+	selectedPool := matchedPoolForAuth(auth, clientPoolsFromMetadata(meta))
+	if selectedPool == "" {
+		if pools := authPools(auth); len(pools) > 0 {
+			selectedPool = pools[0]
+		}
+	}
+	if selectedPool != "" {
+		meta[cliproxyexecutor.SelectedAuthPoolMetadataKey] = selectedPool
+		if poolGroups := authPoolGroups(auth); len(poolGroups) > 0 {
+			if group := strings.TrimSpace(poolGroups[selectedPool]); group != "" {
+				meta[cliproxyexecutor.SelectedAuthPoolGroupMetadataKey] = group
+			}
+		}
+	}
 	if callback, ok := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string)); ok && callback != nil {
 		callback(authID)
 	}
@@ -2069,6 +2085,30 @@ func shouldRetrySchedulerPick(err error) bool {
 	return authErr.Code == "auth_not_found" || authErr.Code == "auth_unavailable"
 }
 
+func hasAuthPoolPolicyMetadata(meta map[string]any) bool {
+	if len(meta) == 0 {
+		return false
+	}
+	if raw, ok := meta["auth_file_pools"]; ok && raw != nil {
+		switch v := raw.(type) {
+		case string:
+			return strings.TrimSpace(v) != ""
+		case []string:
+			return len(v) > 0
+		case []any:
+			return len(v) > 0
+		default:
+			return true
+		}
+	}
+	if raw, ok := meta["auth_file_pool_strategy"]; ok {
+		if s, ok := raw.(string); ok {
+			return strings.TrimSpace(s) != ""
+		}
+	}
+	return false
+}
+
 func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 
@@ -2130,7 +2170,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 }
 
 func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
-	if !m.useSchedulerFastPath() {
+	if !m.useSchedulerFastPath() || hasAuthPoolPolicyMetadata(opts.Metadata) {
 		return m.pickNextLegacy(ctx, provider, model, opts, tried)
 	}
 	executor, okExecutor := m.Executor(provider)
@@ -2244,7 +2284,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 }
 
 func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, string, error) {
-	if !m.useSchedulerFastPath() {
+	if !m.useSchedulerFastPath() || hasAuthPoolPolicyMetadata(opts.Metadata) {
 		return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
 	}
 
@@ -2736,9 +2776,18 @@ func debugLogAuthSelection(entry *log.Entry, auth *Auth, provider string, model 
 	}
 	accountType, accountInfo := auth.AccountInfo()
 	proxyInfo := auth.ProxyInfo()
+	pools := authPools(auth)
 	suffix := ""
+	if len(pools) > 0 {
+		suffix += " pools=" + strings.Join(pools, ",")
+	}
 	if proxyInfo != "" {
-		suffix = " " + proxyInfo
+		if suffix != "" {
+			suffix += " "
+		} else {
+			suffix = " "
+		}
+		suffix += proxyInfo
 	}
 	switch accountType {
 	case "api_key":

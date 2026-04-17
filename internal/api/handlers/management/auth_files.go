@@ -306,6 +306,213 @@ func (h *Handler) GetAuthFileModels(c *gin.Context) {
 	c.JSON(200, gin.H{"models": result})
 }
 
+func poolsFromMetadataValue(raw any) []string {
+	if raw == nil {
+		return nil
+	}
+	values := make([]string, 0)
+	switch v := raw.(type) {
+	case []string:
+		values = append(values, v...)
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				values = append(values, s)
+			}
+		}
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil
+		}
+		if strings.HasPrefix(trimmed, "[") {
+			_ = json.Unmarshal([]byte(trimmed), &values)
+		} else {
+			values = strings.FieldsFunc(trimmed, func(r rune) bool { return r == ',' || r == '\n' || r == '\t' })
+		}
+	default:
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.ToLower(strings.TrimSpace(value))
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func poolGroupsFromMetadataValue(raw any) map[string]string {
+	if raw == nil {
+		return nil
+	}
+	pairs := make(map[string]string)
+	switch v := raw.(type) {
+	case map[string]string:
+		for key, value := range v {
+			poolName := strings.ToLower(strings.TrimSpace(key))
+			groupName := strings.ToLower(strings.TrimSpace(value))
+			if poolName == "" || groupName == "" {
+				continue
+			}
+			pairs[poolName] = groupName
+		}
+	case map[string]any:
+		for key, value := range v {
+			poolName := strings.ToLower(strings.TrimSpace(key))
+			groupName, ok := value.(string)
+			if !ok {
+				continue
+			}
+			groupName = strings.ToLower(strings.TrimSpace(groupName))
+			if poolName == "" || groupName == "" {
+				continue
+			}
+			pairs[poolName] = groupName
+		}
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil
+		}
+		decoded := make(map[string]string)
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+			return nil
+		}
+		for key, value := range decoded {
+			poolName := strings.ToLower(strings.TrimSpace(key))
+			groupName := strings.ToLower(strings.TrimSpace(value))
+			if poolName == "" || groupName == "" {
+				continue
+			}
+			pairs[poolName] = groupName
+		}
+	default:
+		return nil
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	return pairs
+}
+
+func filterPoolGroupsByPools(groups map[string]string, pools []string) map[string]string {
+	if len(groups) == 0 || len(pools) == 0 {
+		return nil
+	}
+	allowed := make(map[string]struct{}, len(pools))
+	for _, pool := range pools {
+		trimmed := strings.ToLower(strings.TrimSpace(pool))
+		if trimmed == "" {
+			continue
+		}
+		allowed[trimmed] = struct{}{}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	filtered := make(map[string]string, len(groups))
+	for pool, group := range groups {
+		trimmedPool := strings.ToLower(strings.TrimSpace(pool))
+		trimmedGroup := strings.ToLower(strings.TrimSpace(group))
+		if trimmedPool == "" || trimmedGroup == "" {
+			continue
+		}
+		if _, ok := allowed[trimmedPool]; !ok {
+			continue
+		}
+		filtered[trimmedPool] = trimmedGroup
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+func (h *Handler) removeAuthFilePoolReferences(ctx context.Context, poolName string) error {
+	if h == nil || h.authManager == nil {
+		return nil
+	}
+	normalizedPool := strings.ToLower(strings.TrimSpace(poolName))
+	if normalizedPool == "" {
+		return nil
+	}
+
+	auths := h.authManager.List()
+	for _, auth := range auths {
+		if auth == nil {
+			continue
+		}
+		currentPools := poolsFromMetadataValue(auth.Metadata["pools"])
+		currentGroups := poolGroupsFromMetadataValue(auth.Metadata["pool_groups"])
+
+		hasPool := false
+		for _, pool := range currentPools {
+			if pool == normalizedPool {
+				hasPool = true
+				break
+			}
+		}
+		_, hasGroup := currentGroups[normalizedPool]
+		if !hasPool && !hasGroup {
+			continue
+		}
+
+		if auth.Metadata == nil {
+			auth.Metadata = make(map[string]any)
+		}
+
+		nextPools := make([]string, 0, len(currentPools))
+		for _, pool := range currentPools {
+			if pool == normalizedPool {
+				continue
+			}
+			nextPools = append(nextPools, pool)
+		}
+		if len(nextPools) == 0 {
+			delete(auth.Metadata, "pools")
+		} else {
+			metaPools := make([]any, 0, len(nextPools))
+			for _, pool := range nextPools {
+				metaPools = append(metaPools, pool)
+			}
+			auth.Metadata["pools"] = metaPools
+		}
+
+		nextGroups := filterPoolGroupsByPools(currentGroups, nextPools)
+		if len(nextGroups) == 0 {
+			delete(auth.Metadata, "pool_groups")
+		} else {
+			metaGroups := make(map[string]any, len(nextGroups))
+			for pool, group := range nextGroups {
+				metaGroups[pool] = group
+			}
+			auth.Metadata["pool_groups"] = metaGroups
+		}
+
+		auth.UpdatedAt = time.Now()
+		if _, err := h.authManager.Update(ctx, auth); err != nil {
+			name := strings.TrimSpace(auth.FileName)
+			if name == "" {
+				name = auth.ID
+			}
+			return fmt.Errorf("failed to remove pool %q from auth %q: %w", normalizedPool, name, err)
+		}
+	}
+
+	return nil
+}
+
 // List auth files from disk when the auth manager is unavailable.
 func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 	entries, err := os.ReadDir(h.cfg.AuthDir)
@@ -313,7 +520,7 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth dir: %v", err)})
 		return
 	}
-	files := make([]gin.H, 0)
+	files := make([]gin.H, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -322,35 +529,53 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 		if !strings.HasSuffix(strings.ToLower(name), ".json") {
 			continue
 		}
-		if info, errInfo := e.Info(); errInfo == nil {
-			fileData := gin.H{"name": name, "size": info.Size(), "modtime": info.ModTime()}
+		info, errInfo := e.Info()
+		if errInfo != nil {
+			continue
+		}
+		fileData := gin.H{"name": name, "size": info.Size(), "modtime": info.ModTime()}
 
-			// Read file to get type field
-			full := filepath.Join(h.cfg.AuthDir, name)
-			if data, errRead := os.ReadFile(full); errRead == nil {
-				typeValue := gjson.GetBytes(data, "type").String()
-				emailValue := gjson.GetBytes(data, "email").String()
-				fileData["type"] = typeValue
-				fileData["email"] = emailValue
-				if pv := gjson.GetBytes(data, "priority"); pv.Exists() {
-					switch pv.Type {
-					case gjson.Number:
-						fileData["priority"] = int(pv.Int())
-					case gjson.String:
-						if parsed, errAtoi := strconv.Atoi(strings.TrimSpace(pv.String())); errAtoi == nil {
-							fileData["priority"] = parsed
-						}
-					}
-				}
-				if nv := gjson.GetBytes(data, "note"); nv.Exists() && nv.Type == gjson.String {
-					if trimmed := strings.TrimSpace(nv.String()); trimmed != "" {
-						fileData["note"] = trimmed
+		full := filepath.Join(h.cfg.AuthDir, name)
+		if data, errRead := os.ReadFile(full); errRead == nil {
+			typeValue := gjson.GetBytes(data, "type").String()
+			emailValue := gjson.GetBytes(data, "email").String()
+			fileData["type"] = typeValue
+			fileData["email"] = emailValue
+			if pv := gjson.GetBytes(data, "priority"); pv.Exists() {
+				switch pv.Type {
+				case gjson.Number:
+					fileData["priority"] = int(pv.Int())
+				case gjson.String:
+					if parsed, errAtoi := strconv.Atoi(strings.TrimSpace(pv.String())); errAtoi == nil {
+						fileData["priority"] = parsed
 					}
 				}
 			}
-
-			files = append(files, fileData)
+			if nv := gjson.GetBytes(data, "note"); nv.Exists() && nv.Type == gjson.String {
+				if trimmed := strings.TrimSpace(nv.String()); trimmed != "" {
+					fileData["note"] = trimmed
+				}
+			}
+			if wv := gjson.GetBytes(data, "weight"); wv.Exists() {
+				switch wv.Type {
+				case gjson.Number:
+					fileData["weight"] = int(wv.Int())
+				case gjson.String:
+					if parsed, errAtoi := strconv.Atoi(strings.TrimSpace(wv.String())); errAtoi == nil {
+						fileData["weight"] = parsed
+					}
+				}
+			}
+			pools := poolsFromMetadataValue(gjson.GetBytes(data, "pools").Raw)
+			if len(pools) > 0 {
+				fileData["pools"] = pools
+			}
+			if poolGroups := filterPoolGroupsByPools(poolGroupsFromMetadataValue(gjson.GetBytes(data, "pool_groups").Raw), pools); len(poolGroups) > 0 {
+				fileData["pool_groups"] = poolGroups
+			}
 		}
+
+		files = append(files, fileData)
 	}
 	c.JSON(200, gin.H{"files": files})
 }
@@ -459,6 +684,27 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 			if trimmed := strings.TrimSpace(rawNote); trimmed != "" {
 				entry["note"] = trimmed
 			}
+		}
+	}
+	if auth.Metadata != nil {
+		if rawWeight, ok := auth.Metadata["weight"]; ok {
+			switch v := rawWeight.(type) {
+			case float64:
+				entry["weight"] = int(v)
+			case int:
+				entry["weight"] = v
+			case string:
+				if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+					entry["weight"] = parsed
+				}
+			}
+		}
+		pools := poolsFromMetadataValue(auth.Metadata["pools"])
+		if len(pools) > 0 {
+			entry["pools"] = pools
+		}
+		if poolGroups := filterPoolGroupsByPools(poolGroupsFromMetadataValue(auth.Metadata["pool_groups"]), pools); len(poolGroups) > 0 {
+			entry["pool_groups"] = poolGroups
 		}
 	}
 	return entry
@@ -893,11 +1139,14 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	}
 
 	var req struct {
-		Name     string  `json:"name"`
-		Prefix   *string `json:"prefix"`
-		ProxyURL *string `json:"proxy_url"`
-		Priority *int    `json:"priority"`
-		Note     *string `json:"note"`
+		Name       string            `json:"name"`
+		Prefix     *string           `json:"prefix"`
+		ProxyURL   *string           `json:"proxy_url"`
+		Priority   *int              `json:"priority"`
+		Weight     *int              `json:"weight"`
+		Note       *string           `json:"note"`
+		Pools      []string          `json:"pools"`
+		PoolGroups map[string]string `json:"pool_groups"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -940,6 +1189,66 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		targetAuth.ProxyURL = *req.ProxyURL
 		changed = true
 	}
+	if req.Pools != nil || req.PoolGroups != nil {
+		if targetAuth.Metadata == nil {
+			targetAuth.Metadata = make(map[string]any)
+		}
+		currentPools := poolsFromMetadataValue(targetAuth.Metadata["pools"])
+		normalizedPools := currentPools
+		if req.Pools != nil {
+			normalizedPools = poolsFromMetadataValue(req.Pools)
+			if len(normalizedPools) == 0 {
+				delete(targetAuth.Metadata, "pools")
+			} else {
+				metaPools := make([]any, 0, len(normalizedPools))
+				for _, pool := range normalizedPools {
+					metaPools = append(metaPools, pool)
+				}
+				targetAuth.Metadata["pools"] = metaPools
+			}
+		}
+		if req.PoolGroups != nil {
+			normalizedGroups := filterPoolGroupsByPools(poolGroupsFromMetadataValue(req.PoolGroups), normalizedPools)
+			if len(normalizedGroups) == 0 {
+				delete(targetAuth.Metadata, "pool_groups")
+			} else {
+				metaGroups := make(map[string]any, len(normalizedGroups))
+				for pool, group := range normalizedGroups {
+					metaGroups[pool] = group
+				}
+				targetAuth.Metadata["pool_groups"] = metaGroups
+			}
+		} else if req.Pools != nil {
+			if existingGroups := filterPoolGroupsByPools(poolGroupsFromMetadataValue(targetAuth.Metadata["pool_groups"]), normalizedPools); len(existingGroups) == 0 {
+				delete(targetAuth.Metadata, "pool_groups")
+			} else {
+				metaGroups := make(map[string]any, len(existingGroups))
+				for pool, group := range existingGroups {
+					metaGroups[pool] = group
+				}
+				targetAuth.Metadata["pool_groups"] = metaGroups
+			}
+		}
+		changed = true
+	}
+
+	if req.Weight != nil {
+		if targetAuth.Metadata == nil {
+			targetAuth.Metadata = make(map[string]any)
+		}
+		if targetAuth.Attributes == nil {
+			targetAuth.Attributes = make(map[string]string)
+		}
+		if *req.Weight <= 0 {
+			delete(targetAuth.Metadata, "weight")
+			delete(targetAuth.Attributes, "weight")
+		} else {
+			targetAuth.Metadata["weight"] = *req.Weight
+			targetAuth.Attributes["weight"] = strconv.Itoa(*req.Weight)
+		}
+		changed = true
+	}
+
 	if req.Priority != nil || req.Note != nil {
 		if targetAuth.Metadata == nil {
 			targetAuth.Metadata = make(map[string]any)

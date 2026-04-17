@@ -25,6 +25,7 @@ archives:
       - LICENSE
       - README.md
       - README_CN.md
+      - docs/fork-notes.md
       - config.example.yaml
 
 checksum:

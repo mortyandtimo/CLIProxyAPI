@@ -9,6 +9,25 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 )
 
+func filterPoolsExcludingName(pools []string, excluded string) []string {
+	normalizedExcluded := strings.ToLower(strings.TrimSpace(excluded))
+	if normalizedExcluded == "" || len(pools) == 0 {
+		return pools
+	}
+	filtered := make([]string, 0, len(pools))
+	for _, pool := range pools {
+		trimmed := strings.ToLower(strings.TrimSpace(pool))
+		if trimmed == "" || trimmed == normalizedExcluded {
+			continue
+		}
+		filtered = append(filtered, trimmed)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
 // Generic helpers for list[string]
 func (h *Handler) putStringList(c *gin.Context, set func([]string), after func()) {
 	data, err := c.GetRawData()
@@ -116,6 +135,196 @@ func (h *Handler) PatchAPIKeys(c *gin.Context) {
 }
 func (h *Handler) DeleteAPIKeys(c *gin.Context) {
 	h.deleteFromStringList(c, &h.cfg.APIKeys, func() {})
+}
+
+// api-key-entries
+func (h *Handler) GetAPIKeyEntries(c *gin.Context) {
+	c.JSON(200, gin.H{"api-key-entries": h.cfg.APIKeyEntries})
+}
+func (h *Handler) PutAPIKeyEntries(c *gin.Context) {
+	data, err := c.GetRawData()
+	if err != nil {
+		c.JSON(400, gin.H{"error": "failed to read body"})
+		return
+	}
+	var arr []config.APIKeyEntry
+	if err = json.Unmarshal(data, &arr); err != nil {
+		var obj struct {
+			Items []config.APIKeyEntry `json:"items"`
+		}
+		if err2 := json.Unmarshal(data, &obj); err2 != nil {
+			c.JSON(400, gin.H{"error": "invalid body"})
+			return
+		}
+		arr = obj.Items
+	}
+	h.cfg.APIKeyEntries = append([]config.APIKeyEntry(nil), arr...)
+	h.cfg.SanitizeAPIKeyEntries()
+	h.persist(c)
+}
+func (h *Handler) PatchAPIKeyEntries(c *gin.Context) {
+	var body struct {
+		Index *int                `json:"index"`
+		Match *string             `json:"match"`
+		Value *config.APIKeyEntry `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Value == nil {
+		c.JSON(400, gin.H{"error": "invalid body"})
+		return
+	}
+	targetIndex := -1
+	if body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.APIKeyEntries) {
+		targetIndex = *body.Index
+	}
+	if targetIndex == -1 && body.Match != nil {
+		match := strings.TrimSpace(*body.Match)
+		if match != "" {
+			for i := range h.cfg.APIKeyEntries {
+				if h.cfg.APIKeyEntries[i].Key == match {
+					targetIndex = i
+					break
+				}
+			}
+		}
+	}
+	if targetIndex == -1 {
+		c.JSON(404, gin.H{"error": "item not found"})
+		return
+	}
+	entry := *body.Value
+	h.cfg.APIKeyEntries[targetIndex] = entry
+	h.cfg.SanitizeAPIKeyEntries()
+	h.persist(c)
+}
+func (h *Handler) DeleteAPIKeyEntries(c *gin.Context) {
+	if val := strings.TrimSpace(c.Query("key")); val != "" {
+		out := make([]config.APIKeyEntry, 0, len(h.cfg.APIKeyEntries))
+		for _, entry := range h.cfg.APIKeyEntries {
+			if strings.TrimSpace(entry.Key) == val {
+				continue
+			}
+			out = append(out, entry)
+		}
+		h.cfg.APIKeyEntries = out
+		h.persist(c)
+		return
+	}
+	if idxStr := c.Query("index"); idxStr != "" {
+		var idx int
+		_, err := fmt.Sscanf(idxStr, "%d", &idx)
+		if err == nil && idx >= 0 && idx < len(h.cfg.APIKeyEntries) {
+			h.cfg.APIKeyEntries = append(h.cfg.APIKeyEntries[:idx], h.cfg.APIKeyEntries[idx+1:]...)
+			h.persist(c)
+			return
+		}
+	}
+	c.JSON(400, gin.H{"error": "missing index or key"})
+}
+
+// auth-file-pools
+func (h *Handler) GetAuthFilePools(c *gin.Context) {
+	c.JSON(200, gin.H{"auth-file-pools": h.cfg.AuthFilePools})
+}
+func (h *Handler) PutAuthFilePools(c *gin.Context) {
+	data, err := c.GetRawData()
+	if err != nil {
+		c.JSON(400, gin.H{"error": "failed to read body"})
+		return
+	}
+	var arr []config.AuthFilePool
+	if err = json.Unmarshal(data, &arr); err != nil {
+		var obj struct {
+			Items []config.AuthFilePool `json:"items"`
+		}
+		if err2 := json.Unmarshal(data, &obj); err2 != nil {
+			c.JSON(400, gin.H{"error": "invalid body"})
+			return
+		}
+		arr = obj.Items
+	}
+	h.cfg.AuthFilePools = append([]config.AuthFilePool(nil), arr...)
+	h.cfg.SanitizeAuthFilePools()
+	h.persist(c)
+}
+func (h *Handler) PatchAuthFilePools(c *gin.Context) {
+	var body struct {
+		Index *int                 `json:"index"`
+		Match *string              `json:"match"`
+		Value *config.AuthFilePool `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Value == nil {
+		c.JSON(400, gin.H{"error": "invalid body"})
+		return
+	}
+	targetIndex := -1
+	if body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.AuthFilePools) {
+		targetIndex = *body.Index
+	}
+	if targetIndex == -1 && body.Match != nil {
+		match := strings.TrimSpace(*body.Match)
+		if match != "" {
+			for i := range h.cfg.AuthFilePools {
+				if h.cfg.AuthFilePools[i].Name == match {
+					targetIndex = i
+					break
+				}
+			}
+		}
+	}
+	if targetIndex == -1 {
+		c.JSON(404, gin.H{"error": "item not found"})
+		return
+	}
+	h.cfg.AuthFilePools[targetIndex] = *body.Value
+	h.cfg.SanitizeAuthFilePools()
+	h.persist(c)
+}
+func (h *Handler) DeleteAuthFilePools(c *gin.Context) {
+	removedPool := ""
+	if val := strings.TrimSpace(c.Query("value")); val != "" {
+		out := make([]config.AuthFilePool, 0, len(h.cfg.AuthFilePools))
+		for _, entry := range h.cfg.AuthFilePools {
+			if strings.TrimSpace(entry.Name) == val {
+				removedPool = entry.Name
+				continue
+			}
+			out = append(out, entry)
+		}
+		if removedPool == "" {
+			c.JSON(404, gin.H{"error": "item not found"})
+			return
+		}
+		h.cfg.AuthFilePools = out
+		if err := h.removeAuthFilePoolReferences(c.Request.Context(), removedPool); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		for i := range h.cfg.APIKeyEntries {
+			h.cfg.APIKeyEntries[i].AuthFilePools = filterPoolsExcludingName(h.cfg.APIKeyEntries[i].AuthFilePools, removedPool)
+		}
+		h.cfg.SanitizeAPIKeyEntries()
+		h.persist(c)
+		return
+	}
+	if idxStr := c.Query("index"); idxStr != "" {
+		var idx int
+		_, err := fmt.Sscanf(idxStr, "%d", &idx)
+		if err == nil && idx >= 0 && idx < len(h.cfg.AuthFilePools) {
+			removedPool = h.cfg.AuthFilePools[idx].Name
+			h.cfg.AuthFilePools = append(h.cfg.AuthFilePools[:idx], h.cfg.AuthFilePools[idx+1:]...)
+			if err := h.removeAuthFilePoolReferences(c.Request.Context(), removedPool); err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+				return
+			}
+			for i := range h.cfg.APIKeyEntries {
+				h.cfg.APIKeyEntries[i].AuthFilePools = filterPoolsExcludingName(h.cfg.APIKeyEntries[i].AuthFilePools, removedPool)
+			}
+			h.cfg.SanitizeAPIKeyEntries()
+			h.persist(c)
+			return
+		}
+	}
+	c.JSON(400, gin.H{"error": "missing index or value"})
 }
 
 // gemini-api-key: []GeminiKey

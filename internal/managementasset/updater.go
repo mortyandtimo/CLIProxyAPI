@@ -88,6 +88,10 @@ func runAutoUpdater(ctx context.Context) {
 			log.Debug("management asset auto-updater skipped: control panel disabled")
 			return
 		}
+		if cfg.RemoteManagement.DisableAutoUpdatePanel {
+			log.Debug("management asset auto-updater skipped: auto-update disabled")
+			return
+		}
 
 		configPath, _ := schedulerConfigPath.Load().(string)
 		staticDir := StaticDir(configPath)

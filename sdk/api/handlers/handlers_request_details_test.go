@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"net/http"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	coreexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 )
 
@@ -114,5 +116,23 @@ func TestGetRequestDetails_PreservesSuffix(t *testing.T) {
 				t.Fatalf("getRequestDetails() model = %v, want %v", model, tt.wantModel)
 			}
 		})
+	}
+}
+
+func TestAppendCPASelectionHeaders_IncludesPoolGroup(t *testing.T) {
+	meta := map[string]any{
+		coreexecutor.SelectedAuthPoolMetadataKey:      "alpha",
+		coreexecutor.SelectedAuthPoolGroupMetadataKey: "gold",
+		coreexecutor.SelectedAuthMetadataKey:          "auth-a",
+	}
+	headers := appendCPASelectionHeaders(meta, http.Header{})
+	if got := headers.Get("X-CPA-Selected-Pool"); got != "alpha" {
+		t.Fatalf("X-CPA-Selected-Pool = %q, want %q", got, "alpha")
+	}
+	if got := headers.Get("X-CPA-Selected-Pool-Group"); got != "gold" {
+		t.Fatalf("X-CPA-Selected-Pool-Group = %q, want %q", got, "gold")
+	}
+	if got := headers.Get("X-CPA-Selected-Auth"); got != "auth-a" {
+		t.Fatalf("X-CPA-Selected-Auth = %q, want %q", got, "auth-a")
 	}
 }

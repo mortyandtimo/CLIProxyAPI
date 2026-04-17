@@ -8,6 +8,14 @@ It now also supports OpenAI Codex (GPT models) and Claude Code via OAuth.
 
 So you can use local or multi-account CLI access with OpenAI(include Responses)/Gemini/Claude-compatible clients and SDKs.
 
+> [!IMPORTANT]
+> This repository is prepared as a personal fork / modified build maintained by [mortyandtimo](https://github.com/mortyandtimo), based on the official upstream project [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
+> It keeps the upstream project name, repository structure, and MIT license chain, while adding fork-specific pool / subgroup management and release packaging for the companion Web UI fork.
+>
+> - Upstream project: https://github.com/router-for-me/CLIProxyAPI
+> - Personal fork release target: https://github.com/mortyandtimo/CLIProxyAPI
+> - Matching Web UI fork: https://github.com/mortyandtimo/Cli-Proxy-API-Management-Center
+
 ## Sponsor
 
 [![z.ai](https://assets.router-for.me/english-5-0.jpg)](https://z.ai/subscribe?ic=8JVLJQFSKB)
@@ -54,6 +62,7 @@ Get 10% OFF GLM CODING PLAN：https://z.ai/subscribe?ic=8JVLJQFSKB
 - iFlow multi-account load balancing
 - OpenAI Codex multi-account load balancing
 - OpenAI-compatible upstream providers via config (e.g., OpenRouter)
+- Auth file pools and subgroup-aware routing for file-backed / OAuth credentials
 - Reusable Go SDK for embedding the proxy (see `docs/sdk-usage.md`)
 
 ## Getting Started
@@ -83,6 +92,21 @@ CLIProxyAPI includes integrated support for [Amp CLI](https://ampcode.com) and A
 - Access: [docs/sdk-access.md](docs/sdk-access.md)
 - Watcher: [docs/sdk-watcher.md](docs/sdk-watcher.md)
 - Custom Provider Example: `examples/custom-provider`
+
+## Fork-specific additions
+
+- Auth file pool management in the Management API, including subgroup definitions per pool.
+- Pool-aware auth selection and subgroup routing in runtime selection.
+- Cleanup of auth metadata and API key pool bindings when a pool is deleted.
+- A Windows-first fork release flow designed to pair with the matching Management Center fork.
+
+## Safe release packaging
+
+The personal fork release is intended to ship sanitized artifacts only. Release archives should include the runtime binary, `LICENSE`, `README.md`, `README_CN.md`, `docs/fork-notes.md`, and `config.example.yaml`.
+
+They should not include any live `config.yaml`, auth data, logs, backups, local upgrade metadata, or machine-specific scripts/state. The first fork release uses a standard Windows archive instead of an installer so the packaged contents remain transparent and easy to audit.
+
+For fork-specific operational and packaging notes, see [docs/fork-notes.md](docs/fork-notes.md).
 
 ## Contributing
 

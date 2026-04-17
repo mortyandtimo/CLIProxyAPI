@@ -24,6 +24,10 @@ import (
 // gcInterval defines minimum time between garbage collection runs.
 const gcInterval = 5 * time.Minute
 
+type metadataSetter interface {
+	SetMetadata(map[string]any)
+}
+
 // GitTokenStore persists token records and auth metadata using git as the backing storage.
 type GitTokenStore struct {
 	mu        sync.Mutex
@@ -245,6 +249,9 @@ func (s *GitTokenStore) Save(_ context.Context, auth *cliproxyauth.Auth) (string
 
 	switch {
 	case auth.Storage != nil:
+		if setter, ok := auth.Storage.(metadataSetter); ok {
+			setter.SetMetadata(auth.Metadata)
+		}
 		if err = auth.Storage.SaveTokenToFile(path); err != nil {
 			return "", err
 		}

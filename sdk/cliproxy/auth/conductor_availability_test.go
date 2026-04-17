@@ -3,6 +3,8 @@ package auth
 import (
 	"testing"
 	"time"
+
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 )
 
 func TestUpdateAggregatedAvailability_UnavailableWithoutNextRetryDoesNotBlockAuth(t *testing.T) {
@@ -57,5 +59,30 @@ func TestUpdateAggregatedAvailability_FutureNextRetryBlocksAuth(t *testing.T) {
 	}
 	if auth.NextRetryAfter.Sub(next) > time.Second || next.Sub(auth.NextRetryAfter) > time.Second {
 		t.Fatalf("auth.NextRetryAfter = %v, want %v", auth.NextRetryAfter, next)
+	}
+}
+
+func TestPublishSelectedAuthMetadata_IncludesMatchedPoolGroup(t *testing.T) {
+	t.Parallel()
+
+	meta := map[string]any{"auth_file_pools": []string{"alpha"}}
+	auth := &Auth{
+		ID: "auth-a",
+		Metadata: map[string]any{
+			"pools":       []any{"alpha", "beta"},
+			"pool_groups": map[string]any{"alpha": "gold", "beta": "silver"},
+		},
+	}
+
+	publishSelectedAuthMetadata(meta, auth)
+
+	if got, _ := meta[cliproxyexecutor.SelectedAuthMetadataKey].(string); got != "auth-a" {
+		t.Fatalf("selected auth = %q, want %q", got, "auth-a")
+	}
+	if got, _ := meta[cliproxyexecutor.SelectedAuthPoolMetadataKey].(string); got != "alpha" {
+		t.Fatalf("selected pool = %q, want %q", got, "alpha")
+	}
+	if got, _ := meta[cliproxyexecutor.SelectedAuthPoolGroupMetadataKey].(string); got != "gold" {
+		t.Fatalf("selected pool group = %q, want %q", got, "gold")
 	}
 }

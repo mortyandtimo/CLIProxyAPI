@@ -25,8 +25,12 @@ remote-management:
   # Disable the bundled management control panel asset download and HTTP route when true.
   disable-control-panel: false
 
+  # Disable automatic periodic background updates of the management panel asset.
+  disable-auto-update-panel: false
+
   # GitHub repository for the management control panel. Accepts a repository URL or releases API URL.
-  panel-github-repository: "https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
+  # Personal fork releases may point this to the matching Web UI fork for consistent updates.
+  panel-github-repository: "https://github.com/mortyandtimo/Cli-Proxy-API-Management-Center"
 
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
@@ -97,6 +101,31 @@ ws-auth: false
 
 # When > 0, emit blank lines every N seconds for non-streaming responses to prevent idle timeouts.
 nonstream-keepalive-interval: 0
+
+# Client API key routing metadata.
+# Use these when you want different downstream API keys to target different auth pools.
+# api-key-entries:
+#   - key: "your-api-key-1"
+#     auth-file-pools:
+#       - "team-a"
+#       - "shared"
+#     pool-strategy: "round-robin"
+#   - key: "your-api-key-2"
+#     auth-file-pools:
+#       - "team-b"
+#     pool-strategy: "fill-first"
+#
+# File-backed / OAuth auth pools.
+# Pools can optionally define subgroups for finer routing and UI assignment.
+# auth-file-pools:
+#   - name: "shared"
+#     strategy: "round-robin"
+#   - name: "team-a"
+#     strategy: "round-robin"
+#     groups:
+#       - name: "default"
+#       - name: "high-priority"
+#         strategy: "fill-first"
 
 # Streaming behavior (SSE keep-alives + safe bootstrap retries).
 # streaming:

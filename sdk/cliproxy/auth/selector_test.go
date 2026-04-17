@@ -494,6 +494,70 @@ func TestRoundRobinSelectorPick_SingleParentFallsBackToFlat(t *testing.T) {
 	}
 }
 
+func TestRoundRobinSelectorPick_PoolSubgroupsRotateAcrossGroups(t *testing.T) {
+	t.Parallel()
+
+	selector := &RoundRobinSelector{}
+	auths := []*Auth{
+		{ID: "a1", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g1"}}},
+		{ID: "a2", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g1"}}},
+		{ID: "b1", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g2"}}},
+		{ID: "b2", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g2"}}},
+	}
+	opts := cliproxyexecutor.Options{Metadata: map[string]any{"auth_file_pools": []string{"alpha"}}}
+
+	got := make([]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		picked, err := selector.Pick(context.Background(), "claude", "m", opts, auths)
+		if err != nil {
+			t.Fatalf("Pick() #%d error = %v", i, err)
+		}
+		got = append(got, picked.ID)
+	}
+
+	want := []string{"a1", "b1", "a2", "b2", "a1", "b1"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Pick() order = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestRoundRobinSelectorPick_PoolSubgroupWeightedStillRotatesGroups(t *testing.T) {
+	t.Parallel()
+
+	selector := &RoundRobinSelector{}
+	auths := []*Auth{
+		{ID: "a", Attributes: map[string]string{"weight": "9"}, Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g1"}}},
+		{ID: "b", Attributes: map[string]string{"weight": "9"}, Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g2"}}},
+	}
+	opts := cliproxyexecutor.Options{Metadata: map[string]any{"auth_file_pools": []string{"alpha"}, "auth_file_pool_strategy": "weighted"}}
+
+	first, err := selector.Pick(context.Background(), "claude", "m", opts, auths)
+	if err != nil {
+		t.Fatalf("first Pick() error = %v", err)
+	}
+	second, err := selector.Pick(context.Background(), "claude", "m", opts, auths)
+	if err != nil {
+		t.Fatalf("second Pick() error = %v", err)
+	}
+	if first == nil || second == nil {
+		t.Fatalf("Pick() returned nil auth")
+	}
+	if first.ID == second.ID {
+		t.Fatalf("expected group rotation across picks, got %q then %q", first.ID, second.ID)
+	}
+	if (first.ID != "a" && first.ID != "b") || (second.ID != "a" && second.ID != "b") {
+		t.Fatalf("unexpected picks: %q, %q", first.ID, second.ID)
+	}
+	if first.ID == "a" && second.ID != "b" {
+		t.Fatalf("expected second pick from other group, got %q then %q", first.ID, second.ID)
+	}
+	if first.ID == "b" && second.ID != "a" {
+		t.Fatalf("expected second pick from other group, got %q then %q", first.ID, second.ID)
+	}
+}
+
 func TestRoundRobinSelectorPick_MixedVirtualAndNonVirtualFallsBackToFlat(t *testing.T) {
 	t.Parallel()
 
