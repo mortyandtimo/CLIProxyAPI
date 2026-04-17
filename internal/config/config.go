@@ -134,6 +134,9 @@ type Config struct {
 	// gemini-api-key, codex-api-key, claude-api-key, openai-compatibility, vertex-api-key, and ampcode.
 	OAuthModelAlias map[string][]OAuthModelAlias `yaml:"oauth-model-alias,omitempty" json:"oauth-model-alias,omitempty"`
 
+	// AuthFilePools stores named auth pools available for assigning file-backed OAuth credentials.
+	AuthFilePools []AuthFilePool `yaml:"auth-file-pools,omitempty" json:"auth-file-pools,omitempty"`
+
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
 
@@ -189,8 +192,7 @@ type RemoteManagement struct {
 	SecretKey string `yaml:"secret-key"`
 	// DisableControlPanel skips serving and syncing the bundled management UI when true.
 	DisableControlPanel bool `yaml:"disable-control-panel"`
-	// DisableAutoUpdatePanel disables automatic periodic background updates of the management panel asset from GitHub.
-	// When false (the default), the background updater remains enabled; when true, the panel is only downloaded on first access if missing.
+	// DisableAutoUpdatePanel disables automatic background refresh of management.html.
 	DisableAutoUpdatePanel bool `yaml:"disable-auto-update-panel"`
 	// PanelGitHubRepository overrides the GitHub repository used to fetch the management panel asset.
 	// Accepts either a repository URL (https://github.com/org/repo) or an API releases endpoint.
@@ -242,6 +244,23 @@ type OAuthModelAlias struct {
 	Name  string `yaml:"name" json:"name"`
 	Alias string `yaml:"alias" json:"alias"`
 	Fork  bool   `yaml:"fork,omitempty" json:"fork,omitempty"`
+}
+
+type AuthFilePoolGroup struct {
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	Strategy    string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+}
+
+type AuthFilePool struct {
+	Name                    string              `yaml:"name" json:"name"`
+	Description             string              `yaml:"description,omitempty" json:"description,omitempty"`
+	Strategy                string              `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+	Groups                  []AuthFilePoolGroup `yaml:"groups,omitempty" json:"groups,omitempty"`
+	CircuitBreaker          bool                `yaml:"circuit-breaker,omitempty" json:"circuit-breaker,omitempty"`
+	BreakerFailureThreshold int                 `yaml:"breaker-failure-threshold,omitempty" json:"breaker-failure-threshold,omitempty"`
+	BreakerRecoverySeconds  int                 `yaml:"breaker-recovery-seconds,omitempty" json:"breaker-recovery-seconds,omitempty"`
+	BreakerHalfOpenRequests int                 `yaml:"breaker-half-open-requests,omitempty" json:"breaker-half-open-requests,omitempty"`
 }
 
 // AmpModelMapping defines a model name mapping for Amp CLI requests.
@@ -695,6 +714,10 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Normalize global OAuth model name aliases.
 	cfg.SanitizeOAuthModelAlias()
 
+	// Normalize auth pool and downstream API key entry configuration.
+	cfg.SanitizeAuthFilePools()
+	cfg.SanitizeAPIKeyEntries()
+
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
 
@@ -715,6 +738,112 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 
 	// Return the populated configuration struct.
 	return &cfg, nil
+}
+
+func normalizePoolName(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizePoolGroupName(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func sanitizeAuthFilePoolGroups(groups []AuthFilePoolGroup) []AuthFilePoolGroup {
+	if len(groups) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(groups))
+	out := make([]AuthFilePoolGroup, 0, len(groups))
+	for _, group := range groups {
+		group.Name = normalizePoolGroupName(group.Name)
+		group.Description = strings.TrimSpace(group.Description)
+		group.Strategy = strings.ToLower(strings.TrimSpace(group.Strategy))
+		if group.Name == "" {
+			continue
+		}
+		if _, ok := seen[group.Name]; ok {
+			continue
+		}
+		seen[group.Name] = struct{}{}
+		out = append(out, group)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// SanitizeAuthFilePools normalizes configured auth file pools.
+func (cfg *Config) SanitizeAuthFilePools() {
+	if cfg == nil || len(cfg.AuthFilePools) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(cfg.AuthFilePools))
+	out := cfg.AuthFilePools[:0]
+	for i := range cfg.AuthFilePools {
+		entry := cfg.AuthFilePools[i]
+		entry.Name = normalizePoolName(entry.Name)
+		entry.Description = strings.TrimSpace(entry.Description)
+		entry.Strategy = strings.ToLower(strings.TrimSpace(entry.Strategy))
+		entry.Groups = sanitizeAuthFilePoolGroups(entry.Groups)
+		if entry.BreakerFailureThreshold < 0 {
+			entry.BreakerFailureThreshold = 0
+		}
+		if entry.BreakerRecoverySeconds < 0 {
+			entry.BreakerRecoverySeconds = 0
+		}
+		if entry.BreakerHalfOpenRequests < 0 {
+			entry.BreakerHalfOpenRequests = 0
+		}
+		if entry.Name == "" {
+			continue
+		}
+		if _, ok := seen[entry.Name]; ok {
+			continue
+		}
+		seen[entry.Name] = struct{}{}
+		out = append(out, entry)
+	}
+	cfg.AuthFilePools = out
+}
+
+// SanitizeAPIKeyEntries normalizes client API key entry routing policies.
+func (cfg *Config) SanitizeAPIKeyEntries() {
+	if cfg == nil || len(cfg.APIKeyEntries) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(cfg.APIKeyEntries))
+	out := cfg.APIKeyEntries[:0]
+	for i := range cfg.APIKeyEntries {
+		entry := cfg.APIKeyEntries[i]
+		entry.Key = strings.TrimSpace(entry.Key)
+		entry.PoolStrategy = strings.ToLower(strings.TrimSpace(entry.PoolStrategy))
+		if entry.Key == "" {
+			continue
+		}
+		if _, ok := seen[entry.Key]; ok {
+			continue
+		}
+		seen[entry.Key] = struct{}{}
+		if len(entry.AuthFilePools) > 0 {
+			poolsSeen := make(map[string]struct{}, len(entry.AuthFilePools))
+			normalizedPools := make([]string, 0, len(entry.AuthFilePools))
+			for _, pool := range entry.AuthFilePools {
+				trimmed := normalizePoolName(pool)
+				if trimmed == "" {
+					continue
+				}
+				if _, ok := poolsSeen[trimmed]; ok {
+					continue
+				}
+				poolsSeen[trimmed] = struct{}{}
+				normalizedPools = append(normalizedPools, trimmed)
+			}
+			entry.AuthFilePools = normalizedPools
+		}
+		out = append(out, entry)
+	}
+	cfg.APIKeyEntries = out
 }
 
 // SanitizePayloadRules validates raw JSON payload rule params and drops invalid rules.

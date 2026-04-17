@@ -24,6 +24,9 @@ type SDKConfig struct {
 	// APIKeys is a list of keys for authenticating clients to this proxy server.
 	APIKeys []string `yaml:"api-keys" json:"api-keys"`
 
+	// APIKeyEntries extends top-level API keys with routing metadata such as auth file pools.
+	APIKeyEntries []APIKeyEntry `yaml:"api-key-entries,omitempty" json:"api-key-entries,omitempty"`
+
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).
 	PassthroughHeaders bool `yaml:"passthrough-headers" json:"passthrough-headers"`
@@ -34,6 +37,13 @@ type SDKConfig struct {
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
+}
+
+// APIKeyEntry describes a downstream client API key and its auth-pool routing policy.
+type APIKeyEntry struct {
+	Key           string   `yaml:"key" json:"key"`
+	AuthFilePools []string `yaml:"auth-file-pools,omitempty" json:"auth-file-pools,omitempty"`
+	PoolStrategy  string   `yaml:"pool-strategy,omitempty" json:"pool-strategy,omitempty"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.

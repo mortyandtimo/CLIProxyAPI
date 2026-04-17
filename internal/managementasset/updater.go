@@ -90,7 +90,7 @@ func runAutoUpdater(ctx context.Context) {
 			return
 		}
 		if cfg.RemoteManagement.DisableAutoUpdatePanel {
-			log.Debug("management asset auto-updater skipped: disable-auto-update-panel is enabled")
+			log.Debug("management asset auto-updater skipped: auto-update disabled")
 			return
 		}
 

@@ -8,6 +8,14 @@
 
 您可以使用本地或多账户的CLI方式，通过任何与 OpenAI（包括Responses）/Gemini/Claude 兼容的客户端和SDK进行访问。
 
+> [!IMPORTANT]
+> 本仓库将作为个人 fork / 魔改版发布，由 [mortyandtimo](https://github.com/mortyandtimo) 维护，基于官方上游项目 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)。
+> 它保留官方项目名、目录结构和 MIT 协议链路，但会加入本 fork 特有的认证池 / 子组管理与配套发布说明。
+>
+> - 官方上游： https://github.com/router-for-me/CLIProxyAPI
+> - 个人 fork 发布目标： https://github.com/mortyandtimo/CLIProxyAPI
+> - 对应管理前端 fork： https://github.com/mortyandtimo/Cli-Proxy-API-Management-Center
+
 ## 赞助商
 
 [![bigmodel.cn](https://assets.router-for.me/chinese-5-0.jpg)](https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII)
@@ -61,6 +69,7 @@ GLM CODING PLAN 是专为AI编码打造的订阅套餐，每月最低仅需20元
 - 支持 Gemini CLI 多账户轮询
 - 支持 Claude Code 多账户轮询
 - 支持 OpenAI Codex 多账户轮询
+- 支持面向认证文件 / OAuth 凭据的认证池与子组路由
 - 通过配置接入上游 OpenAI 兼容提供商（例如 OpenRouter）
 - 可复用的 Go SDK（见 `docs/sdk-usage_CN.md`）
 
@@ -98,6 +107,21 @@ CLIProxyAPI 已内置对 [Amp CLI](https://ampcode.com) 和 Amp IDE 扩展的支
 - 认证: [docs/sdk-access_CN.md](docs/sdk-access_CN.md)
 - 凭据加载/更新: [docs/sdk-watcher_CN.md](docs/sdk-watcher_CN.md)
 - 自定义 Provider 示例：`examples/custom-provider`
+
+## 本 fork 的额外改动
+
+- Management API 新增认证池（auth-file pools）与子组定义能力。
+- 运行时支持按池 / 子组选择文件型与 OAuth 凭据。
+- 删除池时，会同步清理 auth metadata 与 API key entry 中残留的池引用。
+- 发布策略优先提供与管理前端 fork 对应的 Windows 运行包。
+
+## 安全发布说明
+
+个人 fork 的 release 只应包含去敏后的构建产物：运行程序、`LICENSE`、`README.md`、`README_CN.md`、`docs/fork-notes.md` 以及 `config.example.yaml`。
+
+release 不应包含任何真实 `config.yaml`、认证数据、日志、备份目录、本机升级元数据或带有绝对路径/个人信息的运行时文件。第一版 fork release 采用标准 Windows 压缩包，而不是安装包，以确保发布内容透明、可审计、便于用户自行检查。
+
+关于 fork 的操作说明与打包边界，请参见 [docs/fork-notes.md](docs/fork-notes.md)。
 
 ## 贡献
 

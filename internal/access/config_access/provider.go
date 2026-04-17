@@ -2,6 +2,7 @@ package configaccess
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -16,7 +17,7 @@ func Register(cfg *sdkconfig.SDKConfig) {
 		return
 	}
 
-	keys := normalizeKeys(cfg.APIKeys)
+	keys, keyRules := normalizeKeyEntries(cfg.APIKeys, cfg.APIKeyEntries)
 	if len(keys) == 0 {
 		sdkaccess.UnregisterProvider(sdkaccess.AccessProviderTypeConfigAPIKey)
 		return
@@ -24,16 +25,22 @@ func Register(cfg *sdkconfig.SDKConfig) {
 
 	sdkaccess.RegisterProvider(
 		sdkaccess.AccessProviderTypeConfigAPIKey,
-		newProvider(sdkaccess.DefaultAccessProviderName, keys),
+		newProvider(sdkaccess.DefaultAccessProviderName, keys, keyRules),
 	)
 }
 
-type provider struct {
-	name string
-	keys map[string]struct{}
+type keyRule struct {
+	pools    []string
+	strategy string
 }
 
-func newProvider(name string, keys []string) *provider {
+type provider struct {
+	name     string
+	keys     map[string]struct{}
+	keyRules map[string]keyRule
+}
+
+func newProvider(name string, keys []string, keyRules map[string]keyRule) *provider {
 	providerName := strings.TrimSpace(name)
 	if providerName == "" {
 		providerName = sdkaccess.DefaultAccessProviderName
@@ -42,7 +49,7 @@ func newProvider(name string, keys []string) *provider {
 	for _, key := range keys {
 		keySet[key] = struct{}{}
 	}
-	return &provider{name: providerName, keys: keySet}
+	return &provider{name: providerName, keys: keySet, keyRules: keyRules}
 }
 
 func (p *provider) Identifier() string {
@@ -90,12 +97,23 @@ func (p *provider) Authenticate(_ context.Context, r *http.Request) (*sdkaccess.
 			continue
 		}
 		if _, ok := p.keys[candidate.value]; ok {
+			metadata := map[string]string{
+				"source": candidate.source,
+			}
+			if rule, ok := p.keyRules[candidate.value]; ok {
+				if len(rule.pools) > 0 {
+					if data, err := json.Marshal(rule.pools); err == nil {
+						metadata["auth_file_pools"] = string(data)
+					}
+				}
+				if strings.TrimSpace(rule.strategy) != "" {
+					metadata["auth_file_pool_strategy"] = strings.TrimSpace(rule.strategy)
+				}
+			}
 			return &sdkaccess.Result{
 				Provider:  p.Identifier(),
 				Principal: candidate.value,
-				Metadata: map[string]string{
-					"source": candidate.source,
-				},
+				Metadata:  metadata,
 			}, nil
 		}
 	}
@@ -138,4 +156,59 @@ func normalizeKeys(keys []string) []string {
 		return nil
 	}
 	return normalized
+}
+
+func normalizePools(pools []string) []string {
+	if len(pools) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(pools))
+	out := make([]string, 0, len(pools))
+	for _, pool := range pools {
+		trimmed := strings.ToLower(strings.TrimSpace(pool))
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeKeyEntries(keys []string, entries []sdkconfig.APIKeyEntry) ([]string, map[string]keyRule) {
+	base := normalizeKeys(keys)
+	if len(entries) == 0 {
+		return base, map[string]keyRule{}
+	}
+	seen := make(map[string]struct{}, len(base)+len(entries))
+	out := make([]string, 0, len(base)+len(entries))
+	for _, key := range base {
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	keyRules := make(map[string]keyRule)
+	for _, entry := range entries {
+		trimmedKey := strings.TrimSpace(entry.Key)
+		if trimmedKey == "" {
+			continue
+		}
+		if _, ok := seen[trimmedKey]; !ok {
+			seen[trimmedKey] = struct{}{}
+			out = append(out, trimmedKey)
+		}
+		rule := keyRule{pools: normalizePools(entry.AuthFilePools), strategy: strings.ToLower(strings.TrimSpace(entry.PoolStrategy))}
+		if len(rule.pools) > 0 || rule.strategy != "" {
+			keyRules[trimmedKey] = rule
+		}
+	}
+	if len(out) == 0 {
+		return nil, keyRules
+	}
+	return out, keyRules
 }

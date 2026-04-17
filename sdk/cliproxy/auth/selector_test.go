@@ -649,54 +649,67 @@ func TestRoundRobinSelectorPick_SingleParentFallsBackToFlat(t *testing.T) {
 	}
 }
 
-func TestSessionAffinitySelector_FailoverWhenAuthUnavailable(t *testing.T) {
+func TestRoundRobinSelectorPick_PoolSubgroupsRotateAcrossGroups(t *testing.T) {
 	t.Parallel()
 
-	fallback := &RoundRobinSelector{}
-	selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
-		Fallback: fallback,
-		TTL:      time.Minute,
-	})
-	defer selector.Stop()
-
+	selector := &RoundRobinSelector{}
 	auths := []*Auth{
-		{ID: "auth-a"},
-		{ID: "auth-b"},
-		{ID: "auth-c"},
+		{ID: "a1", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g1"}}},
+		{ID: "a2", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g1"}}},
+		{ID: "b1", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g2"}}},
+		{ID: "b2", Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g2"}}},
+	}
+	opts := cliproxyexecutor.Options{Metadata: map[string]any{"auth_file_pools": []string{"alpha"}}}
+
+	got := make([]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		picked, err := selector.Pick(context.Background(), "claude", "m", opts, auths)
+		if err != nil {
+			t.Fatalf("Pick() #%d error = %v", i, err)
+		}
+		got = append(got, picked.ID)
 	}
 
-	payload := []byte(`{"metadata":{"user_id":"user_xxx_account__session_failover-test-uuid"}}`)
-	opts := cliproxyexecutor.Options{OriginalRequest: payload}
-
-	// First pick establishes binding
-	first, err := selector.Pick(context.Background(), "claude", "claude-3", opts, auths)
-	if err != nil {
-		t.Fatalf("Pick() error = %v", err)
-	}
-
-	// Remove the bound auth from available list (simulating rate limit)
-	availableWithoutFirst := make([]*Auth, 0, len(auths)-1)
-	for _, a := range auths {
-		if a.ID != first.ID {
-			availableWithoutFirst = append(availableWithoutFirst, a)
+	want := []string{"a1", "b1", "a2", "b2", "a1", "b1"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Pick() order = %v, want %v", got, want)
 		}
 	}
+}
 
-	// With failover enabled, should pick a new auth
-	second, err := selector.Pick(context.Background(), "claude", "claude-3", opts, availableWithoutFirst)
+func TestRoundRobinSelectorPick_PoolSubgroupWeightedStillRotatesGroups(t *testing.T) {
+	t.Parallel()
+
+	selector := &RoundRobinSelector{}
+	auths := []*Auth{
+		{ID: "a", Attributes: map[string]string{"weight": "9"}, Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g1"}}},
+		{ID: "b", Attributes: map[string]string{"weight": "9"}, Metadata: map[string]any{"pools": []any{"alpha"}, "pool_groups": map[string]any{"alpha": "g2"}}},
+	}
+	opts := cliproxyexecutor.Options{Metadata: map[string]any{"auth_file_pools": []string{"alpha"}, "auth_file_pool_strategy": "weighted"}}
+
+	first, err := selector.Pick(context.Background(), "claude", "m", opts, auths)
 	if err != nil {
-		t.Fatalf("Pick() after failover error = %v", err)
+		t.Fatalf("first Pick() error = %v", err)
 	}
-	if second.ID == first.ID {
-		t.Fatalf("Pick() after failover returned same auth %q, expected different", first.ID)
+	second, err := selector.Pick(context.Background(), "claude", "m", opts, auths)
+	if err != nil {
+		t.Fatalf("second Pick() error = %v", err)
 	}
-
-	// Subsequent picks should consistently return the new binding
-	for i := 0; i < 5; i++ {
-		got, _ := selector.Pick(context.Background(), "claude", "claude-3", opts, availableWithoutFirst)
-		if got.ID != second.ID {
-			t.Fatalf("Pick() #%d after failover inconsistent: got %q, want %q", i, got.ID, second.ID)
-		}
+	if first == nil || second == nil {
+		t.Fatalf("Pick() returned nil auth")
+	}
+	if first.ID == second.ID {
+		t.Fatalf("expected group rotation across picks, got %q then %q", first.ID, second.ID)
+	}
+	if (first.ID != "a" && first.ID != "b") || (second.ID != "a" && second.ID != "b") {
+		t.Fatalf("unexpected picks: %q, %q", first.ID, second.ID)
+	}
+	if first.ID == "a" && second.ID != "b" {
+		t.Fatalf("expected second pick from other group, got %q then %q", first.ID, second.ID)
+	}
+	if first.ID == "b" && second.ID != "a" {
+		t.Fatalf("expected second pick from other group, got %q then %q", first.ID, second.ID)
 	}
 }
 

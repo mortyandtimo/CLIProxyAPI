@@ -185,20 +185,50 @@ func PassthroughHeadersEnabled(cfg *config.SDKConfig) bool {
 	return cfg != nil && cfg.PassthroughHeaders
 }
 
+func appendCPASelectionHeaders(meta map[string]any, headers http.Header) http.Header {
+	if len(meta) == 0 {
+		return headers
+	}
+	selectedPool, _ := meta[coreexecutor.SelectedAuthPoolMetadataKey].(string)
+	selectedGroup, _ := meta[coreexecutor.SelectedAuthPoolGroupMetadataKey].(string)
+	selectedAuth, _ := meta[coreexecutor.SelectedAuthMetadataKey].(string)
+	if strings.TrimSpace(selectedPool) == "" && strings.TrimSpace(selectedGroup) == "" && strings.TrimSpace(selectedAuth) == "" {
+		return headers
+	}
+	if headers == nil {
+		headers = make(http.Header)
+	}
+	if strings.TrimSpace(selectedPool) != "" {
+		headers.Set("X-CPA-Selected-Pool", strings.TrimSpace(selectedPool))
+	}
+	if strings.TrimSpace(selectedGroup) != "" {
+		headers.Set("X-CPA-Selected-Pool-Group", strings.TrimSpace(selectedGroup))
+	}
+	if strings.TrimSpace(selectedAuth) != "" {
+		headers.Set("X-CPA-Selected-Auth", strings.TrimSpace(selectedAuth))
+	}
+	return headers
+}
+
 func requestExecutionMetadata(ctx context.Context) map[string]any {
 	// Idempotency-Key is an optional client-supplied header used to correlate retries.
 	// Only include it if the client explicitly provides it.
 	key := ""
+	meta := map[string]any{}
 	if ctx != nil {
 		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
 			key = strings.TrimSpace(ginCtx.GetHeader("Idempotency-Key"))
+			if accessMeta, exists := ginCtx.Get("accessMetadata"); exists {
+				if values, ok := accessMeta.(map[string]string); ok {
+					if rawPools := strings.TrimSpace(values["auth_file_pools"]); rawPools != "" {
+						meta["auth_file_pools"] = rawPools
+					}
+				}
+			}
 		}
 	}
 
-	meta := make(map[string]any)
-	if key != "" {
-		meta[idempotencyKeyMetadataKey] = key
-	}
+	meta[idempotencyKeyMetadataKey] = key
 	if pinnedAuthID := pinnedAuthIDFromContext(ctx); pinnedAuthID != "" {
 		meta[coreexecutor.PinnedAuthMetadataKey] = pinnedAuthID
 	}
@@ -508,9 +538,9 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 		return nil, nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
 	if !PassthroughHeadersEnabled(h.Cfg) {
-		return resp.Payload, nil, nil
+		return resp.Payload, appendCPASelectionHeaders(reqMeta, nil), nil
 	}
-	return resp.Payload, FilterUpstreamHeaders(resp.Headers), nil
+	return resp.Payload, appendCPASelectionHeaders(reqMeta, FilterUpstreamHeaders(resp.Headers)), nil
 }
 
 // ExecuteCountWithAuthManager executes a non-streaming request via the core auth manager.
@@ -555,9 +585,9 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 		return nil, nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 	}
 	if !PassthroughHeadersEnabled(h.Cfg) {
-		return resp.Payload, nil, nil
+		return resp.Payload, appendCPASelectionHeaders(reqMeta, nil), nil
 	}
-	return resp.Payload, FilterUpstreamHeaders(resp.Headers), nil
+	return resp.Payload, appendCPASelectionHeaders(reqMeta, FilterUpstreamHeaders(resp.Headers)), nil
 }
 
 // ExecuteStreamWithAuthManager executes a streaming request via the core auth manager.
@@ -617,6 +647,7 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 		if upstreamHeaders == nil {
 			upstreamHeaders = make(http.Header)
 		}
+		upstreamHeaders = appendCPASelectionHeaders(reqMeta, upstreamHeaders)
 	}
 	chunks := streamResult.Chunks
 	dataChan := make(chan []byte)

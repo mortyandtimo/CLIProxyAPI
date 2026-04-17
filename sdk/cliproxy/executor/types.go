@@ -15,6 +15,10 @@ const (
 	PinnedAuthMetadataKey = "pinned_auth_id"
 	// SelectedAuthMetadataKey stores the auth ID selected by the scheduler.
 	SelectedAuthMetadataKey = "selected_auth_id"
+	// SelectedAuthPoolMetadataKey stores the selected auth pool name.
+	SelectedAuthPoolMetadataKey = "selected_auth_pool"
+	// SelectedAuthPoolGroupMetadataKey stores the selected subgroup name inside the selected auth pool.
+	SelectedAuthPoolGroupMetadataKey = "selected_auth_pool_group"
 	// SelectedAuthCallbackMetadataKey carries an optional callback invoked with the selected auth ID.
 	SelectedAuthCallbackMetadataKey = "selected_auth_callback"
 	// ExecutionSessionMetadataKey identifies a long-lived downstream execution session.
