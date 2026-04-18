@@ -23,6 +23,8 @@ type Builder struct {
 	// cfg holds the application configuration.
 	cfg *config.Config
 
+	skipAutoOpenBrowser bool
+
 	// configPath is the path to the configuration file.
 	configPath string
 
@@ -94,6 +96,12 @@ func (b *Builder) WithConfig(cfg *config.Config) *Builder {
 //   - *Builder: The builder instance for method chaining
 func (b *Builder) WithConfigPath(path string) *Builder {
 	b.configPath = path
+	return b
+}
+
+// WithSkipAutoOpenBrowser disables automatic browser launch after server startup.
+func (b *Builder) WithSkipAutoOpenBrowser(skip bool) *Builder {
+	b.skipAutoOpenBrowser = skip
 	return b
 }
 
@@ -245,16 +253,17 @@ func (b *Builder) Build() (*Service, error) {
 	coreManager.SetOAuthModelAlias(b.cfg.OAuthModelAlias)
 
 	service := &Service{
-		cfg:            b.cfg,
-		configPath:     b.configPath,
-		tokenProvider:  tokenProvider,
-		apiKeyProvider: apiKeyProvider,
-		watcherFactory: watcherFactory,
-		hooks:          b.hooks,
-		authManager:    authManager,
-		accessManager:  accessManager,
-		coreManager:    coreManager,
-		serverOptions:  append([]api.ServerOption(nil), b.serverOptions...),
+		cfg:                 b.cfg,
+		skipAutoOpenBrowser: b.skipAutoOpenBrowser,
+		configPath:          b.configPath,
+		tokenProvider:       tokenProvider,
+		apiKeyProvider:      apiKeyProvider,
+		watcherFactory:      watcherFactory,
+		hooks:               b.hooks,
+		authManager:         authManager,
+		accessManager:       accessManager,
+		coreManager:         coreManager,
+		serverOptions:       append([]api.ServerOption(nil), b.serverOptions...),
 	}
 	return service, nil
 }

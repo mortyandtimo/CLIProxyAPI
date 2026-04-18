@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/browser"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
@@ -32,6 +35,8 @@ import (
 type Service struct {
 	// cfg holds the current application configuration.
 	cfg *config.Config
+
+	skipAutoOpenBrowser bool
 
 	// cfgMu protects concurrent access to the configuration.
 	cfgMu sync.RWMutex
@@ -600,6 +605,18 @@ func (s *Service) Run(ctx context.Context) error {
 
 	time.Sleep(100 * time.Millisecond)
 	fmt.Printf("API server started successfully on: %s:%d\n", s.cfg.Host, s.cfg.Port)
+	if managementURL := s.ManagementURL(); managementURL != "" && s.cfg != nil && !s.cfg.RemoteManagement.DisableControlPanel {
+		fmt.Printf("Management page: %s\n", managementURL)
+	}
+	if s.cfg != nil && s.cfg.RemoteManagement.DisableControlPanel {
+		fmt.Println("Management page disabled by config: remote-management.disable-control-panel=true")
+	}
+	if !s.managementAPIEnabled() {
+		fmt.Println("Management API is inactive until remote-management.secret-key or MANAGEMENT_PASSWORD is set.")
+	}
+	if s.cfg != nil && !s.cfg.RemoteManagement.DisableControlPanel {
+		go s.maybeOpenManagementURL()
+	}
 
 	s.applyPprofConfig(s.cfg)
 
@@ -720,6 +737,73 @@ func (s *Service) Run(ctx context.Context) error {
 	case err = <-s.serverErr:
 		return err
 	}
+}
+
+// ManagementURL returns the local control panel URL exposed by the running service.
+func (s *Service) ManagementURL() string {
+	if s == nil || s.cfg == nil {
+		return ""
+	}
+
+	host := strings.TrimSpace(s.cfg.Host)
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "127.0.0.1"
+	}
+
+	if strings.EqualFold(host, "localhost") {
+		host = "127.0.0.1"
+	}
+
+	if parsed := net.ParseIP(host); parsed != nil && parsed.To4() == nil && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+
+	scheme := "http"
+	if s.cfg.TLS.Enable {
+		scheme = "https"
+	}
+
+	return fmt.Sprintf("%s://%s:%d/management.html", scheme, host, s.cfg.Port)
+}
+
+func (s *Service) managementAPIEnabled() bool {
+	if s == nil || s.cfg == nil || s.cfg.RemoteManagement.DisableControlPanel {
+		return false
+	}
+	if strings.TrimSpace(s.cfg.RemoteManagement.SecretKey) != "" {
+		return true
+	}
+	return strings.TrimSpace(os.Getenv("MANAGEMENT_PASSWORD")) != ""
+}
+
+// maybeOpenManagementURL opens the local control panel automatically on Windows releases.
+func (s *Service) maybeOpenManagementURL() {
+	if s == nil || s.skipAutoOpenBrowser {
+		return
+	}
+	if runtimeGOOS() != "windows" {
+		return
+	}
+	if !s.managementAPIEnabled() {
+		return
+	}
+
+	managementURL := s.ManagementURL()
+	if managementURL == "" {
+		return
+	}
+	if err := openBrowserURL(managementURL); err != nil {
+		log.Warnf("failed to open management page automatically: %v", err)
+	}
+}
+
+func runtimeGOOS() string {
+	return runtime.GOOS
+}
+
+func openBrowserURL(rawURL string) error {
+	return browser.OpenURL(rawURL)
 }
 
 // Shutdown gracefully stops background workers and the HTTP server.

@@ -20,6 +20,46 @@ jobs:
         run: |
           git fetch --depth 1 https://github.com/router-for-me/models.git main
           git show FETCH_HEAD:models.json > internal/registry/models/models.json
+
+      - name: Clone matching management center fork
+        run: |
+          set -euo pipefail
+          repo="https://github.com/mortyandtimo/Cli-Proxy-API-Management-Center.git"
+          ref="${GITHUB_REF_NAME}"
+          clone_ref=""
+
+          if git ls-remote --exit-code --heads "${repo}" "${ref}" >/dev/null 2>&1 || \
+             git ls-remote --exit-code --tags "${repo}" "${ref}" >/dev/null 2>&1; then
+            clone_ref="${ref}"
+            echo "Using frontend ref ${clone_ref}"
+          else
+            echo "Frontend ref ${ref} not found, falling back to default branch"
+          fi
+
+          if [ -n "${clone_ref}" ]; then
+            git clone --depth 1 --branch "${clone_ref}" "${repo}" cpamc
+          else
+            git clone --depth 1 "${repo}" cpamc
+          fi
+          git -C cpamc rev-parse --short HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cpamc/package-lock.json
+
+      - name: Build bundled management UI
+        run: |
+          set -euo pipefail
+          cd cpamc
+          npm ci
+          npm run build
+          install -m 0644 dist/index.html ../internal/managementasset/management.html
+          ls -lh ../internal/managementasset/management.html
+        env:
+          VERSION: ${{ github.ref_name }}
+
       - run: git fetch --force --tags
       - uses: actions/setup-go@v4
         with:

@@ -569,6 +569,9 @@ func main() {
 			}
 		} else {
 			// Start the main proxy service
+			if cfg != nil && !cfg.RemoteManagement.DisableControlPanel {
+				managementasset.EnsureBundledManagementHTML(managementasset.StaticDir(configFilePath))
+			}
 			managementasset.StartAutoUpdater(context.Background(), configFilePath)
 			misc.StartAntigravityVersionUpdater(context.Background())
 			if !localModel {

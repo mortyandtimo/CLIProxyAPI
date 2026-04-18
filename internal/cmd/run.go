@@ -28,6 +28,7 @@ func StartService(cfg *config.Config, configPath string, localPassword string) {
 	builder := cliproxy.NewBuilder().
 		WithConfig(cfg).
 		WithConfigPath(configPath).
+		WithSkipAutoOpenBrowser(localPassword != "").
 		WithLocalManagementPassword(localPassword)
 
 	ctxSignal, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -61,6 +62,7 @@ func StartServiceBackground(cfg *config.Config, configPath string, localPassword
 	builder := cliproxy.NewBuilder().
 		WithConfig(cfg).
 		WithConfigPath(configPath).
+		WithSkipAutoOpenBrowser(localPassword != "").
 		WithLocalManagementPassword(localPassword)
 
 	ctx, cancelFn := context.WithCancel(context.Background())

@@ -28,6 +28,8 @@ archives:
       - README_CN.md
       - docs/fork-notes.md
       - config.example.yaml
+      - src: internal/managementasset/management.html
+        dst: management.html
 
 checksum:
   name_template: 'checksums.txt'

@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	_ "embed"
+
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
@@ -33,6 +35,9 @@ const (
 	updateCheckInterval          = 3 * time.Hour
 	maxAssetDownloadSize         = 50 << 20 // 10 MB safety limit for management asset downloads
 )
+
+//go:embed management.html
+var bundledManagementHTML []byte
 
 // ManagementFileName exposes the control panel asset filename.
 const ManagementFileName = managementAssetName
@@ -177,6 +182,34 @@ func FilePath(configFilePath string) string {
 	return filepath.Join(dir, ManagementFileName)
 }
 
+// EnsureBundledManagementHTML persists the embedded management asset when the local file is missing.
+func EnsureBundledManagementHTML(staticDir string) bool {
+	staticDir = strings.TrimSpace(staticDir)
+	if staticDir == "" || len(bundledManagementHTML) == 0 {
+		return false
+	}
+
+	localPath := filepath.Join(staticDir, managementAssetName)
+	if _, err := os.Stat(localPath); err == nil {
+		return true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		log.WithError(err).Warn("failed to stat local management asset before writing bundled copy")
+		return false
+	}
+
+	if err := os.MkdirAll(staticDir, 0o755); err != nil {
+		log.WithError(err).Warn("failed to prepare static directory for bundled management asset")
+		return false
+	}
+	if err := atomicWriteFile(localPath, bundledManagementHTML); err != nil {
+		log.WithError(err).Warn("failed to persist bundled management asset")
+		return false
+	}
+
+	log.Info("bundled management asset prepared successfully")
+	return true
+}
+
 // EnsureLatestManagementHTML checks the latest management.html asset and updates the local copy when needed.
 // It coalesces concurrent sync attempts and returns whether the asset exists after the sync attempt.
 func EnsureLatestManagementHTML(ctx context.Context, staticDir string, proxyURL string, panelRepository string) bool {
@@ -214,6 +247,9 @@ func EnsureLatestManagementHTML(ctx context.Context, staticDir string, proxyURL 
 			} else {
 				log.WithError(errStat).Debug("failed to stat local management asset")
 			}
+		}
+		if localFileMissing && EnsureBundledManagementHTML(staticDir) {
+			return nil, nil
 		}
 
 		if errMkdirAll := os.MkdirAll(staticDir, 0o755); errMkdirAll != nil {
