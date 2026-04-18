@@ -8,6 +8,8 @@
 
 您可以使用本地或多账户的CLI方式，通过任何与 OpenAI（包括Responses）/Gemini/Claude 兼容的客户端和SDK进行访问。
 
+**友链**：[学 AI，上 L 站 LinuxDO](https://linux.do/)
+
 > [!IMPORTANT]
 > 本仓库将作为个人 fork / 魔改版发布，由 [mortyandtimo](https://github.com/mortyandtimo) 维护，基于官方上游项目 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)。
 > 它保留官方项目名、目录结构和 MIT 协议链路，但会加入本 fork 特有的认证池 / 子组管理与配套发布说明。

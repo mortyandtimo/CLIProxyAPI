@@ -8,6 +8,8 @@ It now also supports OpenAI Codex (GPT models) and Claude Code via OAuth.
 
 So you can use local or multi-account CLI access with OpenAI(include Responses)/Gemini/Claude-compatible clients and SDKs.
 
+**Friendly Link**: [学 AI，上 L 站 LinuxDO](https://linux.do/)
+
 > [!IMPORTANT]
 > This repository is prepared as a personal fork / modified build maintained by [mortyandtimo](https://github.com/mortyandtimo), based on the official upstream project [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
 > It keeps the upstream project name, repository structure, and MIT license chain, while adding fork-specific pool / subgroup management and release packaging for the companion Web UI fork.
