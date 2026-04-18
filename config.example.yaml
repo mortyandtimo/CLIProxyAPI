@@ -2,8 +2,8 @@
 # Change this only when you want to expose the proxy beyond the local machine.
 host: "127.0.0.1"
 
-# Server port
-port: 8317
+# Server port. Packaged releases use 8327 by default to avoid colliding with an existing local CPA instance on 8317.
+port: 8327
 
 # TLS settings for HTTPS. When enabled, the server listens with the provided certificate and key.
 tls:
