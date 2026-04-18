@@ -5,6 +5,11 @@ on:
     # run only against tags
     tags:
       - '*'
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Tag or branch to release
+        required: true
 
 permissions:
   contents: write
@@ -12,10 +17,13 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
       - name: Refresh models catalog
         run: |
           git fetch --depth 1 https://github.com/router-for-me/models.git main
@@ -25,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           repo="https://github.com/mortyandtimo/Cli-Proxy-API-Management-Center.git"
-          ref="${GITHUB_REF_NAME}"
+          ref="${RELEASE_REF}"
           clone_ref=""
 
           if git ls-remote --exit-code --heads "${repo}" "${ref}" >/dev/null 2>&1 || \
@@ -58,7 +66,7 @@ jobs:
           install -m 0644 dist/index.html ../internal/managementasset/management.html
           ls -lh ../internal/managementasset/management.html
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_REF }}
 
       - run: git fetch --force --tags
       - uses: actions/setup-go@v4
@@ -67,7 +75,7 @@ jobs:
           cache: true
       - name: Generate Build Metadata
         run: |
-          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          echo "VERSION=${RELEASE_REF}" >> $GITHUB_ENV
           echo COMMIT=`git rev-parse --short HEAD` >> $GITHUB_ENV
           echo BUILD_DATE=`date -u +%Y-%m-%dT%H:%M:%SZ` >> $GITHUB_ENV
       - uses: goreleaser/goreleaser-action@v4
