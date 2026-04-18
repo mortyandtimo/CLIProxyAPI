@@ -224,6 +224,11 @@ func apiKeyFromContext(ctx context.Context) string {
 	return ""
 }
 
+// APIKeyFromContext exposes the authenticated client API key stored on the request context.
+func APIKeyFromContext(ctx context.Context) string {
+	return apiKeyFromContext(ctx)
+}
+
 func resolveUsageSource(auth *cliproxyauth.Auth, ctxAPIKey string) string {
 	if auth != nil {
 		provider := strings.TrimSpace(auth.Provider)
