@@ -1,6 +1,6 @@
-# Server host/interface to bind to. Default is empty ("") to bind all interfaces (IPv4 + IPv6).
-# Use "127.0.0.1" or "localhost" to restrict access to local machine only.
-host: ""
+# Server host/interface to bind to. Packaged releases default to localhost for safe first-run use.
+# Change this only when you want to expose the proxy beyond the local machine.
+host: "127.0.0.1"
 
 # Server port
 port: 8317
@@ -17,16 +17,16 @@ remote-management:
   # When false, only localhost can access management endpoints (a key is still required).
   allow-remote: false
 
-  # Management key. If a plaintext value is provided here, it will be hashed on startup.
-  # All management requests (even from localhost) require this key.
-  # Leave empty to disable the Management API entirely (404 for all /v0/management routes).
-  secret-key: ""
+  # Management key. Packaged releases ship with a usable localhost-only default.
+  # Change it after first start if you want your own password.
+  secret-key: "admin123"
 
   # Disable the bundled management control panel asset download and HTTP route when true.
   disable-control-panel: false
 
   # Disable automatic periodic background updates of the management panel asset.
-  disable-auto-update-panel: false
+  # Packaged releases default to the bundled UI to avoid GitHub rate-limit noise on first run.
+  disable-auto-update-panel: true
 
   # GitHub repository for the management control panel. Accepts a repository URL or releases API URL.
   # Personal fork releases may point this to the matching Web UI fork for consistent updates.
@@ -35,11 +35,10 @@ remote-management:
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
 
-# API keys for authentication
+# API keys for authentication. The packaged release includes one ready-to-use local key.
+# Add more keys or replace this value when needed.
 api-keys:
-  - "your-api-key-1"
-  - "your-api-key-2"
-  - "your-api-key-3"
+  - "sk-local-demo"
 
 # Enable debug logging
 debug: false

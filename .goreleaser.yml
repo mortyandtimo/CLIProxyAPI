@@ -27,7 +27,8 @@ archives:
       - README.md
       - README_CN.md
       - docs/fork-notes.md
-      - config.example.yaml
+      - src: config.example.yaml
+        dst: config.yaml
       - src: internal/managementasset/management.html
         dst: management.html
 
