@@ -127,3 +127,71 @@ func TestDeleteAuthFile_FallbackToAuthDirPath(t *testing.T) {
 		t.Fatalf("expected auth file to be removed from auth dir, stat err: %v", errStat)
 	}
 }
+
+func TestDeleteAuthFile_AllowsLegacyIDThatIsNotSafeFileName(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	authDir := filepath.Join(tempDir, "auth")
+	externalDir := filepath.Join(tempDir, "external")
+	if errMkdirAuth := os.MkdirAll(authDir, 0o700); errMkdirAuth != nil {
+		t.Fatalf("failed to create auth dir: %v", errMkdirAuth)
+	}
+	if errMkdirExternal := os.MkdirAll(externalDir, 0o700); errMkdirExternal != nil {
+		t.Fatalf("failed to create external dir: %v", errMkdirExternal)
+	}
+
+	fileName := "current-cpa.json"
+	realPath := filepath.Join(externalDir, fileName)
+	if errWriteReal := os.WriteFile(realPath, []byte(`{"type":"claude"}`), 0o600); errWriteReal != nil {
+		t.Fatalf("failed to write real file: %v", errWriteReal)
+	}
+
+	legacyID := "cpa/current\\user"
+	manager := coreauth.NewManager(nil, nil, nil)
+	record := &coreauth.Auth{
+		ID:          legacyID,
+		Provider:    "claude",
+		Status:      coreauth.StatusActive,
+		Unavailable: false,
+		Attributes: map[string]string{
+			"path": realPath,
+		},
+		Metadata: map[string]any{
+			"type": "claude",
+		},
+	}
+	if _, errRegister := manager.Register(context.Background(), record); errRegister != nil {
+		t.Fatalf("failed to register auth record: %v", errRegister)
+	}
+
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = &memoryAuthStore{}
+
+	deleteRec := httptest.NewRecorder()
+	deleteCtx, _ := gin.CreateTestContext(deleteRec)
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/v0/management/auth-files?name="+url.QueryEscape(legacyID), nil)
+	deleteCtx.Request = deleteReq
+	h.DeleteAuthFile(deleteCtx)
+
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("expected delete status %d, got %d with body %s", http.StatusOK, deleteRec.Code, deleteRec.Body.String())
+	}
+	if _, errStat := os.Stat(realPath); !os.IsNotExist(errStat) {
+		t.Fatalf("expected managed auth file to be removed, stat err: %v", errStat)
+	}
+	if auth, ok := manager.GetByID(legacyID); !ok {
+		t.Fatalf("expected auth record to remain registered for disabled state")
+	} else {
+		if !auth.Disabled {
+			t.Fatalf("expected auth record to be disabled after delete")
+		}
+		if auth.Status != coreauth.StatusDisabled {
+			t.Fatalf("expected auth status %q, got %q", coreauth.StatusDisabled, auth.Status)
+		}
+		if auth.StatusMessage != "removed via management API" {
+			t.Fatalf("expected removed status message, got %q", auth.StatusMessage)
+		}
+	}
+}
